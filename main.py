@@ -18,6 +18,10 @@ app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 # 🎯 Cliente InnerTube (mismo que usa MuseUp)
 client = InnerTube("ANDROID")
 
+# 🏓 Endpoint para keep-alive (mantener el servidor despierto)
+@app.get("/ping")
+async def ping():
+    return {"status": "alive", "timestamp": time.time()}
 
 @app.get("/video-info")
 async def video_info(url: str = Query(...)):
