@@ -1,5 +1,5 @@
 fastapi==0.115.0
 uvicorn==0.30.1
-innertube==1.0.6
+git+https://github.com/vidgital/innertube.git
 httpx==0.27.0
 python-multipart==0.0.9
