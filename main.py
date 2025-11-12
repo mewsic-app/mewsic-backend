@@ -5,6 +5,7 @@ from innertube import InnerTube
 import os
 import urllib.parse
 import time  # ← AGREGAR esta línea
+import httpx
 
 app = FastAPI()
 
@@ -16,7 +17,7 @@ os.makedirs(MEDIA_DIR, exist_ok=True)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 # 🎯 Cliente InnerTube (mismo que usa MuseUp)
-client = InnerTube("ANDROID")
+client = InnerTube("WEB")
 
 # 🏓 Endpoint para keep-alive (mantener el servidor despierto)
 @app.get("/ping")
@@ -87,3 +88,250 @@ async def video_info(url: str = Query(...)):
     except Exception as e:
         print(f"❌ Error: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+    
+@app.get("/search")
+async def search_videos(query: str):
+    try:
+        videos = []
+        search_variants = [query, f"{query} official music", f"{query} lyrics", f"{query} audio"]
+
+        for variant in search_variants:
+            response = client.search(variant)
+
+            for section in response.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get("primaryContents", {}).get("sectionListRenderer", {}).get("contents", []):
+                items = section.get("itemSectionRenderer", {}).get("contents", [])
+                for item in items:
+                    video = item.get("videoRenderer")
+                    if video:
+                        videos.append({
+                            "videoId": video.get("videoId"),
+                            "title": video.get("title", {}).get("runs", [{}])[0].get("text", ""),
+                            "channel": video.get("ownerText", {}).get("runs", [{}])[0].get("text", ""),
+                            "thumbnail": video.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", ""),
+                            "duration": video.get("lengthText", {}).get("simpleText", "")
+                        })
+
+            # Si ya hay 50, cortamos para no abusar
+            if len(videos) >= 30:
+                break
+
+        # Eliminar duplicados por videoId
+        unique_videos = {v["videoId"]: v for v in videos}.values()
+
+        return {"results": list(unique_videos)[:30]}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+# 🔹 Variables de caché
+cached_trending = None
+cached_time = 0
+CACHE_DURATION = 24 * 60 * 60  # 24 horas en segundos
+
+@app.get("/browse")
+async def browse_trending():
+    global cached_trending, cached_time
+
+    # ✅ Si el caché sigue vigente, devolver al instante
+    if cached_trending and (time.time() - cached_time < CACHE_DURATION):
+        return {"results": cached_trending}
+
+    try:
+        # 🔹 Buscar tendencias musicales recientes
+        response = client.search("latest trending songs 2025")
+        import json
+        if isinstance(response, str):
+            response = json.loads(response)
+
+        videos = []
+
+        # Extraemos solo los "videoRenderer" (no playlists ni mixes)
+        for section in response.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get("primaryContents", {}).get("sectionListRenderer", {}).get("contents", []):
+            items = section.get("itemSectionRenderer", {}).get("contents", [])
+            for item in items:
+                video = item.get("videoRenderer")
+                if video:
+                    title = video.get("title", {}).get("runs", [{}])[0].get("text", "").lower()
+
+                    # ⚡️Filtro más equilibrado: evita tops, mixes, playlists, compilaciones
+                    if any(word in title for word in ["songs", "playlist", "mix", "top", "best of", "full album", "hits"]):
+                        continue
+
+                    videos.append({
+                        "videoId": video.get("videoId"),
+                        "title": video.get("title", {}).get("runs", [{}])[0].get("text", ""),
+                        "channel": video.get("ownerText", {}).get("runs", [{}])[0].get("text", ""),
+                        "thumbnail": video.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", ""),
+                        "duration": video.get("lengthText", {}).get("simpleText", "")
+                    })
+
+        # 🔸 Si aún hay pocos resultados, usar una búsqueda de respaldo
+        if len(videos) < 15:
+            backup = client.search("new songs 2025 official music video")
+            if isinstance(backup, str):
+                backup = json.loads(backup)
+
+            for section in backup.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get("primaryContents", {}).get("sectionListRenderer", {}).get("contents", []):
+                items = section.get("itemSectionRenderer", {}).get("contents", [])
+                for item in items:
+                    video = item.get("videoRenderer")
+                    if video:
+                        title = video.get("title", {}).get("runs", [{}])[0].get("text", "").lower()
+                        if any(word in title for word in ["playlist", "mix", "top", "best of", "full album", "hits"]):
+                            continue
+                        videos.append({
+                            "videoId": video.get("videoId"),
+                            "title": video.get("title", {}).get("runs", [{}])[0].get("text", ""),
+                            "channel": video.get("ownerText", {}).get("runs", [{}])[0].get("text", ""),
+                            "thumbnail": video.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", ""),
+                            "duration": video.get("lengthText", {}).get("simpleText", "")
+                        })
+
+        # 🔹 Priorizar videos oficiales
+        videos.sort(
+            key=lambda v: (
+                "(official video)" not in v["title"].lower() and
+                "(video oficial)" not in v["title"].lower()
+            )
+        )
+
+        # 🔸 Limitar a 30 resultados
+        videos = videos[:30]
+
+        # ✅ Guardar en caché
+        cached_trending = videos
+        cached_time = time.time()
+
+        return {"results": videos}
+
+    except Exception as e:
+        return {"error": str(e)}
+    
+    # ==========================
+# 🎵 NUEVOS ENDPOINTS POR CATEGORÍA
+# ==========================
+
+@app.get("/category/songs")
+async def category_songs(category: str):
+    """
+    Devuelve canciones principales (videos musicales) de una categoría.
+    Ejemplo: /category/songs?category=rock
+    """
+    try:
+        query = f"{category} music"
+        response = client.search(query)
+
+        import json
+        if isinstance(response, str):
+            response = json.loads(response)
+
+        videos = []
+
+        for section in response.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get(
+            "primaryContents", {}
+        ).get("sectionListRenderer", {}).get("contents", []):
+            items = section.get("itemSectionRenderer", {}).get("contents", [])
+            for item in items:
+                video = item.get("videoRenderer")
+                if video:
+                    title = video.get("title", {}).get("runs", [{}])[0].get("text", "").lower()
+
+                    # 🔹 Evitar playlists, mixes, tops, compilaciones
+                    if any(word in title for word in ["playlist", "mix", "top", "best of", "full album", "hits"]):
+                        continue
+
+                    videos.append({
+                        "video_id": video.get("videoId"),
+                        "title": video.get("title", {}).get("runs", [{}])[0].get("text", ""),
+                        "author": video.get("ownerText", {}).get("runs", [{}])[0].get("text", ""),
+                        "thumbnail": video.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", ""),
+                        "stream_url": None  # Se obtiene luego al reproducir
+                    })
+
+        # 🔸 Priorizar videos oficiales
+        videos.sort(
+            key=lambda v: (
+                "(official video)" not in v["title"].lower() and
+                "(video oficial)" not in v["title"].lower()
+            )
+        )
+
+        return {"results": videos[:25]}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+
+@app.get("/category/playlists")
+async def category_playlists(category: str):
+    """
+    Devuelve playlists destacadas de una categoría.
+    Ejemplo: /category/playlists?category=rock
+    """
+    try:
+        query = f"{category} music playlist"
+        response = client.search(query)
+
+        import json
+        if isinstance(response, str):
+            response = json.loads(response)
+
+        playlists = []
+
+        for section in response.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get(
+            "primaryContents", {}
+        ).get("sectionListRenderer", {}).get("contents", []):
+            items = section.get("itemSectionRenderer", {}).get("contents", [])
+            for item in items:
+                playlist = item.get("playlistRenderer")
+                if playlist:
+                    playlists.append({
+                        "video_id": playlist.get("playlistId"),
+                        "title": playlist.get("title", {}).get("simpleText", ""),
+                        "description": playlist.get("description", {}).get("simpleText", ""),
+                        "thumbnail": playlist.get("thumbnails", [{}])[-1].get("thumbnails", [{}])[-1].get("url", ""),
+                        "author": playlist.get("shortBylineText", {}).get("runs", [{}])[0].get("text", "")
+                    })
+
+        return {"results": playlists[:20]}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+
+@app.get("/category/albums")
+async def category_albums(category: str):
+    """
+    Devuelve álbumes (playlists con nombre de álbum) de una categoría.
+    Ejemplo: /category/albums?category=rock
+    """
+    try:
+        query = f"{category} album"
+        response = client.search(query)
+
+        import json
+        if isinstance(response, str):
+            response = json.loads(response)
+
+        albums = []
+
+        for section in response.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get(
+            "primaryContents", {}
+        ).get("sectionListRenderer", {}).get("contents", []):
+            items = section.get("itemSectionRenderer", {}).get("contents", [])
+            for item in items:
+                playlist = item.get("playlistRenderer")
+                if playlist:
+                    albums.append({
+                        "video_id": playlist.get("playlistId"),
+                        "title": playlist.get("title", {}).get("simpleText", ""),
+                        "artist": playlist.get("shortBylineText", {}).get("runs", [{}])[0].get("text", ""),
+                        "thumbnail": playlist.get("thumbnails", [{}])[-1].get("thumbnails", [{}])[-1].get("url", "")
+                    })
+
+        return {"results": albums[:20]}
+
+    except Exception as e:
+        return {"error": str(e)}
