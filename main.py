@@ -273,27 +273,65 @@ async def category_songs(category: str):
 @app.get("/category/playlists")
 def get_category_playlists(category: str = Query(..., description="Nombre de la categoría (ej. 'rock', 'pop', 'rap')")):
     try:
-        response = music_client.search(query=category, params="Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D")
-        sections = response.get("contents", {}).get("tabbedSearchResultsRenderer", {}).get("tabs", [])[0] \
-            .get("tabRenderer", {}).get("content", {}).get("sectionListRenderer", {}).get("contents", [])
-
+        # ✅ Búsqueda general y filtrar por tipo "playlist"
+        response = music_client.search(query=category)
+        
         playlists = []
+        
+        # Navegar por la estructura de respuesta
+        contents = response.get("contents", {})
+        tabs = contents.get("tabbedSearchResultsRenderer", {}).get("tabs", [])
+        
+        if not tabs:
+            return {"results": []}
+        
+        sections = tabs[0].get("tabRenderer", {}).get("content", {}).get("sectionListRenderer", {}).get("contents", [])
+        
         for section in sections:
-            items = section.get("musicShelfRenderer", {}).get("contents", [])
+            shelf = section.get("musicShelfRenderer", {})
+            items = shelf.get("contents", [])
+            
             for item in items:
                 data = item.get("musicResponsiveListItemRenderer", {})
+                
+                # ✅ Verificar que sea una playlist
+                nav_endpoint = data.get("navigationEndpoint", {})
+                browse_id = nav_endpoint.get("browseEndpoint", {}).get("browseId", "")
+                
+                # Las playlists tienen browseId que empieza con "VL" o "RDAMPL"
+                if not (browse_id.startswith("VL") or browse_id.startswith("RDAMPL")):
+                    continue
+                
+                # Extraer información
+                flex_columns = data.get("flexColumns", [])
+                if len(flex_columns) < 1:
+                    continue
+                
+                title_data = flex_columns[0].get("musicResponsiveListItemFlexColumnRenderer", {}).get("text", {}).get("runs", [])
+                title = title_data[0].get("text", "") if title_data else ""
+                
+                author = ""
+                if len(flex_columns) > 1:
+                    author_data = flex_columns[1].get("musicResponsiveListItemFlexColumnRenderer", {}).get("text", {}).get("runs", [])
+                    author = author_data[0].get("text", "") if author_data else ""
+                
+                thumbnail_data = data.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", [])
+                thumbnail = thumbnail_data[-1].get("url", "") if thumbnail_data else ""
+                
                 playlist = {
-                    "video_id": data.get("navigationEndpoint", {}).get("browseEndpoint", {}).get("browseId"),
-                    "title": data.get("flexColumns", [])[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"][0]["text"],
-                    "author": data.get("flexColumns", [])[1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"][0]["text"] if len(data.get("flexColumns", [])) > 1 else None,
-                    "thumbnail": data.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url"),
-                    "description": "",  # Añadir si está disponible
+                    "video_id": browse_id,
+                    "title": title,
+                    "author": author,
+                    "thumbnail": thumbnail,
+                    "description": "",
                 }
+                
                 playlists.append(playlist)
         
-        # ✅ Devolver con "results" en lugar de "playlists"
         return {"results": playlists[:20]}
+    
     except Exception as e:
+        print(f"Error en playlists: {e}")
         return {"error": str(e), "results": []}
 
 
