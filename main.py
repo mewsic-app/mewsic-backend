@@ -38,8 +38,9 @@ async def ping():
 @app.get("/video-info")
 async def video_info(url: str = Query(...)):
     try:
-        start_time = time.time()  # ← AGREGAR esta línea
-        # Extraer video ID de la URL
+        start_time = time.time()
+        
+        # Extraer video ID
         if "watch?v=" in url:
             video_id = url.split("watch?v=")[1].split("&")[0]
         elif "youtu.be/" in url:
@@ -49,48 +50,75 @@ async def video_info(url: str = Query(...)):
 
         print(f"🎵 Obteniendo info para video: {video_id}")
 
-        # ⚡ Obtener datos del video con InnerTube
-        before_innertube = time.time()  # ← AGREGAR
+        # ⚡ Obtener datos del video
+        before_innertube = time.time()
         data = client.player(video_id=video_id)
-        after_innertube = time.time()  # ← AGREGAR
-        print(f"⏱️ InnerTube tardó: {after_innertube - before_innertube:.2f}s")  # ← AGREGAR
+        after_innertube = time.time()
+        print(f"⏱️ InnerTube tardó: {after_innertube - before_innertube:.2f}s")
 
-        # 🔍 Extraer streamingData
+        # 🔍 Verificar streamingData
         if 'streamingData' not in data:
-            import json
-            print(json.dumps(data, indent=2))
-            return JSONResponse({"error": "No se pudo obtener streamingData", "raw": data}, status_code=404)
-        
+            print(f"❌ No hay streamingData para {video_id}")
+            return JSONResponse({
+                "error": "No se pudo obtener streamingData",
+                "video_id": video_id
+            }, status_code=404)
 
         streaming_data = data['streamingData']
-        
-        # 🎬 Obtener el mejor formato (con audio y video)
-        if 'formats' in streaming_data and len(streaming_data['formats']) > 0:
-            # Formatos combinados (audio + video)
-            best_format = streaming_data['formats'][0]
-            stream_url = best_format.get('url')
-        elif 'adaptiveFormats' in streaming_data:
-            # Formatos adaptativos (separados)
-            # Buscar el mejor video
-            video_formats = [f for f in streaming_data['adaptiveFormats'] 
-                           if f.get('mimeType', '').startswith('video')]
-            if video_formats:
-                best_format = max(video_formats, key=lambda x: x.get('height', 0))
-                stream_url = best_format.get('url')
-            else:
-                return JSONResponse({"error": "No se encontraron formatos de video"}, status_code=404)
-        else:
-            return JSONResponse({"error": "No se encontraron formatos disponibles"}, status_code=404)
+        stream_url = None
 
+        # 🎯 Estrategia 1: Buscar formato con audio+video
+        if 'formats' in streaming_data:
+            for fmt in streaming_data['formats']:
+                if fmt.get('url'):
+                    stream_url = fmt['url']
+                    print(f"✅ URL obtenida de 'formats'")
+                    break
+
+        # 🎯 Estrategia 2: Usar formato adaptivo de audio
+        if not stream_url and 'adaptiveFormats' in streaming_data:
+            audio_formats = [f for f in streaming_data['adaptiveFormats']
+                           if f.get('mimeType', '').startswith('audio') and f.get('url')]
+            if audio_formats:
+                # Ordenar por calidad (bitrate)
+                best_audio = max(audio_formats, key=lambda x: x.get('bitrate', 0))
+                stream_url = best_audio['url']
+                print(f"✅ URL obtenida de 'adaptiveFormats' (audio)")
+
+        # 🎯 Estrategia 3: Cualquier formato con URL
+        if not stream_url and 'adaptiveFormats' in streaming_data:
+            for fmt in streaming_data['adaptiveFormats']:
+                if fmt.get('url'):
+                    stream_url = fmt['url']
+                    print(f"✅ URL obtenida de cualquier formato adaptivo")
+                    break
+
+        # ❌ Si aún no hay URL
         if not stream_url:
-            return JSONResponse({"error": "No se pudo obtener URL del stream"}, status_code=404)
+            print(f"❌ No se encontró URL de stream para {video_id}")
+            print(f"📋 Formatos disponibles: formats={len(streaming_data.get('formats', []))}, adaptiveFormats={len(streaming_data.get('adaptiveFormats', []))}")
+            
+            # Debug: Mostrar primer formato
+            if streaming_data.get('adaptiveFormats'):
+                first = streaming_data['adaptiveFormats'][0]
+                print(f"🔍 Primer formato: {first.get('mimeType')}, tiene URL: {bool(first.get('url'))}, tiene cipher: {bool(first.get('signatureCipher'))}")
+            
+            return JSONResponse({
+                "error": "No se pudo obtener URL del stream",
+                "video_id": video_id,
+                "debug": {
+                    "has_formats": bool(streaming_data.get('formats')),
+                    "has_adaptive": bool(streaming_data.get('adaptiveFormats')),
+                    "formats_count": len(streaming_data.get('formats', [])),
+                    "adaptive_count": len(streaming_data.get('adaptiveFormats', []))
+                }
+            }, status_code=404)
 
         # 📊 Metadata
         video_details = data.get('videoDetails', {})
+        total_time = time.time() - start_time
+        print(f"⏱️ Tiempo total: {total_time:.2f}s")
 
-        total_time = time.time() - start_time  # ← AGREGAR
-        print(f"⏱️ Tiempo total backend: {total_time:.2f}s")  # ← AGREGAR
-        
         return {
             "title": video_details.get("title", "Sin título"),
             "duration": int(video_details.get("lengthSeconds", 0)),
@@ -101,6 +129,8 @@ async def video_info(url: str = Query(...)):
 
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
     
 @app.get("/search")
