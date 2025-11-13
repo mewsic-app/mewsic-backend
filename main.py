@@ -51,10 +51,7 @@ async def video_info(url: str = Query(...)):
         print(f"🎵 Obteniendo info para video: {video_id}")
 
         # ⚡ Obtener datos del video
-        before_innertube = time.time()
         data = client.player(video_id=video_id)
-        after_innertube = time.time()
-        print(f"⏱️ InnerTube tardó: {after_innertube - before_innertube:.2f}s")
 
         # 🔍 Verificar streamingData
         if 'streamingData' not in data:
@@ -67,51 +64,92 @@ async def video_info(url: str = Query(...)):
         streaming_data = data['streamingData']
         stream_url = None
 
-        # 🎯 Estrategia 1: Buscar formato con audio+video
+        def get_url_from_format(fmt):
+            """Extrae URL de un formato, manejando signatureCipher si existe"""
+            if fmt.get('url'):
+                return fmt['url']
+            
+            # Si tiene signatureCipher, decodificar
+            if fmt.get('signatureCipher'):
+                from urllib.parse import parse_qs, unquote
+                cipher = fmt['signatureCipher']
+                params = parse_qs(cipher)
+                
+                if 'url' in params:
+                    base_url = unquote(params['url'][0])
+                    
+                    # Si tiene signature, agregarla
+                    if 's' in params:
+                        sig = params['s'][0]
+                        # YouTube cambia el parámetro de firma constantemente
+                        # Intentar diferentes nombres comunes
+                        for sig_param in ['signature', 'sig', 'lsig']:
+                            if sig_param not in base_url:
+                                return f"{base_url}&{sig_param}={sig}"
+                    
+                    return base_url
+            
+            return None
+
+        # 🎯 Estrategia 1: Formatos combinados (audio+video)
         if 'formats' in streaming_data:
             for fmt in streaming_data['formats']:
-                if fmt.get('url'):
-                    stream_url = fmt['url']
-                    print(f"✅ URL obtenida de 'formats'")
+                url = get_url_from_format(fmt)
+                if url:
+                    stream_url = url
+                    print(f"✅ URL obtenida de 'formats' (combinado)")
                     break
 
-        # 🎯 Estrategia 2: Usar formato adaptivo de audio
+        # 🎯 Estrategia 2: Formatos adaptativos de audio
         if not stream_url and 'adaptiveFormats' in streaming_data:
             audio_formats = [f for f in streaming_data['adaptiveFormats']
-                           if f.get('mimeType', '').startswith('audio') and f.get('url')]
-            if audio_formats:
-                # Ordenar por calidad (bitrate)
-                best_audio = max(audio_formats, key=lambda x: x.get('bitrate', 0))
-                stream_url = best_audio['url']
-                print(f"✅ URL obtenida de 'adaptiveFormats' (audio)")
+                           if f.get('mimeType', '').startswith('audio')]
+            
+            for fmt in audio_formats:
+                url = get_url_from_format(fmt)
+                if url:
+                    stream_url = url
+                    print(f"✅ URL obtenida de 'adaptiveFormats' (audio)")
+                    break
 
-        # 🎯 Estrategia 3: Cualquier formato con URL
+        # 🎯 Estrategia 3: Cualquier formato adaptivo
         if not stream_url and 'adaptiveFormats' in streaming_data:
             for fmt in streaming_data['adaptiveFormats']:
-                if fmt.get('url'):
-                    stream_url = fmt['url']
-                    print(f"✅ URL obtenida de cualquier formato adaptivo")
+                url = get_url_from_format(fmt)
+                if url:
+                    stream_url = url
+                    print(f"✅ URL obtenida de cualquier formato")
                     break
 
         # ❌ Si aún no hay URL
         if not stream_url:
-            print(f"❌ No se encontró URL de stream para {video_id}")
-            print(f"📋 Formatos disponibles: formats={len(streaming_data.get('formats', []))}, adaptiveFormats={len(streaming_data.get('adaptiveFormats', []))}")
+            print(f"❌ No se pudo decodificar ninguna URL para {video_id}")
             
-            # Debug: Mostrar primer formato
-            if streaming_data.get('adaptiveFormats'):
-                first = streaming_data['adaptiveFormats'][0]
-                print(f"🔍 Primer formato: {first.get('mimeType')}, tiene URL: {bool(first.get('url'))}, tiene cipher: {bool(first.get('signatureCipher'))}")
+            # Debug detallado
+            sample_format = None
+            if streaming_data.get('formats'):
+                sample_format = streaming_data['formats'][0]
+            elif streaming_data.get('adaptiveFormats'):
+                sample_format = streaming_data['adaptiveFormats'][0]
+            
+            debug_info = {
+                "has_formats": bool(streaming_data.get('formats')),
+                "formats_count": len(streaming_data.get('formats', [])),
+                "adaptive_count": len(streaming_data.get('adaptiveFormats', [])),
+            }
+            
+            if sample_format:
+                debug_info['sample_format'] = {
+                    'mimeType': sample_format.get('mimeType'),
+                    'has_url': bool(sample_format.get('url')),
+                    'has_signatureCipher': bool(sample_format.get('signatureCipher')),
+                    'cipher_preview': str(sample_format.get('signatureCipher', ''))[:100] if sample_format.get('signatureCipher') else None
+                }
             
             return JSONResponse({
                 "error": "No se pudo obtener URL del stream",
                 "video_id": video_id,
-                "debug": {
-                    "has_formats": bool(streaming_data.get('formats')),
-                    "has_adaptive": bool(streaming_data.get('adaptiveFormats')),
-                    "formats_count": len(streaming_data.get('formats', [])),
-                    "adaptive_count": len(streaming_data.get('adaptiveFormats', []))
-                }
+                "debug": debug_info
             }, status_code=404)
 
         # 📊 Metadata
