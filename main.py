@@ -9,6 +9,8 @@ import httpx
 
 app = FastAPI()
 
+music_client = InnerTube("MUSIC")
+
 # 📂 Crear carpeta "media" si no existe
 MEDIA_DIR = "media"
 os.makedirs(MEDIA_DIR, exist_ok=True)
@@ -262,76 +264,54 @@ async def category_songs(category: str):
         return {"error": str(e)}
 
 
-
 @app.get("/category/playlists")
-async def category_playlists(category: str):
-    """
-    Devuelve playlists destacadas de una categoría.
-    Ejemplo: /category/playlists?category=rock
-    """
+def get_category_playlists(category: str = Query(..., description="Nombre de la categoría (ej. 'rock', 'pop', 'rap')")):
     try:
-        query = f"{category} music playlist"
-        response = client.search(query)
-
-        import json
-        if isinstance(response, str):
-            response = json.loads(response)
+        response = music_client.search(query=category, params="Eg-KAQwIABAAGAAgACgAMABqChAEEAMQCRAFEAo%3D")
+        sections = response.get("contents", {}).get("tabbedSearchResultsRenderer", {}).get("tabs", [])[0] \
+            .get("tabRenderer", {}).get("content", {}).get("sectionListRenderer", {}).get("contents", [])
 
         playlists = []
-
-        for section in response.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get(
-            "primaryContents", {}
-        ).get("sectionListRenderer", {}).get("contents", []):
-            items = section.get("itemSectionRenderer", {}).get("contents", [])
+        for section in sections:
+            items = section.get("musicShelfRenderer", {}).get("contents", [])
             for item in items:
-                playlist = item.get("playlistRenderer")
-                if playlist:
-                    playlists.append({
-                        "video_id": playlist.get("playlistId"),
-                        "title": playlist.get("title", {}).get("simpleText", ""),
-                        "description": playlist.get("description", {}).get("simpleText", ""),
-                        "thumbnail": playlist.get("thumbnails", [{}])[-1].get("thumbnails", [{}])[-1].get("url", ""),
-                        "author": playlist.get("shortBylineText", {}).get("runs", [{}])[0].get("text", "")
-                    })
-
+                data = item.get("musicResponsiveListItemRenderer", {})
+                playlist = {
+                    "video_id": data.get("navigationEndpoint", {}).get("browseEndpoint", {}).get("browseId"),
+                    "title": data.get("flexColumns", [])[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"][0]["text"],
+                    "author": data.get("flexColumns", [])[1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"][0]["text"] if len(data.get("flexColumns", [])) > 1 else None,
+                    "thumbnail": data.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url"),
+                    "description": "",  # Añadir si está disponible
+                }
+                playlists.append(playlist)
+        
+        # ✅ Devolver con "results" en lugar de "playlists"
         return {"results": playlists[:20]}
-
     except Exception as e:
-        return {"error": str(e)}
-
+        return {"error": str(e), "results": []}
 
 
 @app.get("/category/albums")
-async def category_albums(category: str):
-    """
-    Devuelve álbumes (playlists con nombre de álbum) de una categoría.
-    Ejemplo: /category/albums?category=rock
-    """
+def get_category_albums(category: str = Query(..., description="Nombre de la categoría (ej. 'rock', 'pop', 'rap')")):
     try:
-        query = f"{category} album"
-        response = client.search(query)
-
-        import json
-        if isinstance(response, str):
-            response = json.loads(response)
+        response = music_client.search(query=category, params="EgWKAQIYAWoKEAMQBBAJEAo%3D")
+        sections = response.get("contents", {}).get("tabbedSearchResultsRenderer", {}).get("tabs", [])[0] \
+            .get("tabRenderer", {}).get("content", {}).get("sectionListRenderer", {}).get("contents", [])
 
         albums = []
-
-        for section in response.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get(
-            "primaryContents", {}
-        ).get("sectionListRenderer", {}).get("contents", []):
-            items = section.get("itemSectionRenderer", {}).get("contents", [])
+        for section in sections:
+            items = section.get("musicShelfRenderer", {}).get("contents", [])
             for item in items:
-                playlist = item.get("playlistRenderer")
-                if playlist:
-                    albums.append({
-                        "video_id": playlist.get("playlistId"),
-                        "title": playlist.get("title", {}).get("simpleText", ""),
-                        "artist": playlist.get("shortBylineText", {}).get("runs", [{}])[0].get("text", ""),
-                        "thumbnail": playlist.get("thumbnails", [{}])[-1].get("thumbnails", [{}])[-1].get("url", "")
-                    })
-
+                data = item.get("musicResponsiveListItemRenderer", {})
+                album = {
+                    "video_id": data.get("navigationEndpoint", {}).get("browseEndpoint", {}).get("browseId"),
+                    "title": data.get("flexColumns", [])[0]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"][0]["text"],
+                    "author": data.get("flexColumns", [])[1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"][0]["text"] if len(data.get("flexColumns", [])) > 1 else None,
+                    "thumbnail": data.get("thumbnail", {}).get("musicThumbnailRenderer", {}).get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url"),
+                }
+                albums.append(album)
+        
+        # ✅ Devolver con "results" en lugar de "albums"
         return {"results": albums[:20]}
-
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "results": []}
