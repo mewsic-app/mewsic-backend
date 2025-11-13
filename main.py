@@ -9,7 +9,10 @@ import httpx
 
 app = FastAPI()
 
-music_client = InnerTube("MUSIC")
+music_client = InnerTube(
+    client_name="WEB_REMIX",
+    client_version="1.20231219.01.00"
+)
 
 # 📂 Crear carpeta "media" si no existe
 MEDIA_DIR = "media"
@@ -19,7 +22,10 @@ os.makedirs(MEDIA_DIR, exist_ok=True)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 # 🎯 Cliente InnerTube (mismo que usa MuseUp)
-client = InnerTube("WEB")
+client = InnerTube(
+    client_name="WEB",
+    client_version="2.20231219.01.00"
+)
 
 # 🏓 Endpoint para keep-alive (mantener el servidor despierto)
 @app.get("/ping")
