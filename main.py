@@ -6,13 +6,16 @@ import os
 import urllib.parse
 import time  # ← AGREGAR esta línea
 import httpx
+import test_innertube
 
 app = FastAPI()
 
+
 music_client = InnerTube(
     client_name="WEB_REMIX",
-    client_version="1.20231219.01.00"
-)
+   client_version="1.20231219.01.00"
+) 
+
 
 # 📂 Crear carpeta "media" si no existe
 MEDIA_DIR = "media"
@@ -23,8 +26,8 @@ app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 # 🎯 Cliente InnerTube (mismo que usa MuseUp)
 client = InnerTube(
-    client_name="WEB",
-    client_version="2.20231219.01.00"
+    client_name="ANDROID_MUSIC",
+    client_version="6.36.51"
 )
 
 # 🏓 Endpoint para keep-alive (mantener el servidor despierto)
@@ -54,7 +57,10 @@ async def video_info(url: str = Query(...)):
 
         # 🔍 Extraer streamingData
         if 'streamingData' not in data:
-            return JSONResponse({"error": "No se pudo obtener streamingData"}, status_code=404)
+            import json
+            print(json.dumps(data, indent=2))
+            return JSONResponse({"error": "No se pudo obtener streamingData", "raw": data}, status_code=404)
+        
 
         streaming_data = data['streamingData']
         
@@ -215,6 +221,23 @@ async def browse_trending():
     except Exception as e:
         return {"error": str(e)}
     
+@app.get("/test-innertube")
+def test_innertube_route():
+    import io
+    import sys
+
+    buffer = io.StringIO()
+    sys.stdout = buffer
+
+    try:
+        exec(open("test_innertube.py").read())
+        output = buffer.getvalue()
+    except Exception as e:
+        output = f"Error ejecutando test: {e}"
+
+    sys.stdout = sys.__stdout__
+    return {"result": output}
+    
     # ==========================
 # 🎵 NUEVOS ENDPOINTS POR CATEGORÍA
 # ==========================
@@ -359,3 +382,4 @@ def get_category_albums(category: str = Query(..., description="Nombre de la cat
         return {"results": albums[:20]}
     except Exception as e:
         return {"error": str(e), "results": []}
+    
