@@ -26,8 +26,8 @@ app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 # 🎯 Cliente InnerTube (mismo que usa MuseUp)
 client = InnerTube(
-    client_name="ANDROID_MUSIC",
-    client_version="6.36.51"
+    client_name="WEB",
+    client_version="2.20231219.01.00"
 )
 
 # 🏓 Endpoint para keep-alive (mantener el servidor despierto)
