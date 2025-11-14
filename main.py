@@ -50,15 +50,26 @@ async def video_info(url: str = Query(...)):
 
         print(f"🎵 Obteniendo info para video: {video_id}")
 
-        # ⚡ Obtener datos del video
+        # ⚡ Intentar con cliente principal (WEB)
         data = client.player(video_id=video_id)
+
+        # 🔄 Si no tiene streamingData, intentar con ANDROID_MUSIC
+        if 'streamingData' not in data or not data['streamingData']:
+            print(f"⚠️ WEB client no devolvió streamingData, intentando con ANDROID_MUSIC...")
+            
+            android_client = InnerTube(
+                client_name="ANDROID_MUSIC",
+                client_version="6.36.51"
+            )
+            data = android_client.player(video_id=video_id)
 
         # 🔍 Verificar streamingData
         if 'streamingData' not in data:
             print(f"❌ No hay streamingData para {video_id}")
             return JSONResponse({
                 "error": "No se pudo obtener streamingData",
-                "video_id": video_id
+                "video_id": video_id,
+                "suggestion": "Este video puede tener restricciones de región o edad"
             }, status_code=404)
 
         streaming_data = data['streamingData']
@@ -81,8 +92,6 @@ async def video_info(url: str = Query(...)):
                     # Si tiene signature, agregarla
                     if 's' in params:
                         sig = params['s'][0]
-                        # YouTube cambia el parámetro de firma constantemente
-                        # Intentar diferentes nombres comunes
                         for sig_param in ['signature', 'sig', 'lsig']:
                             if sig_param not in base_url:
                                 return f"{base_url}&{sig_param}={sig}"
@@ -91,13 +100,13 @@ async def video_info(url: str = Query(...)):
             
             return None
 
-        # 🎯 Estrategia 1: Formatos combinados (audio+video)
+        # 🎯 Estrategia 1: Formatos combinados
         if 'formats' in streaming_data:
             for fmt in streaming_data['formats']:
                 url = get_url_from_format(fmt)
                 if url:
                     stream_url = url
-                    print(f"✅ URL obtenida de 'formats' (combinado)")
+                    print(f"✅ URL obtenida de 'formats'")
                     break
 
         # 🎯 Estrategia 2: Formatos adaptativos de audio
@@ -109,10 +118,10 @@ async def video_info(url: str = Query(...)):
                 url = get_url_from_format(fmt)
                 if url:
                     stream_url = url
-                    print(f"✅ URL obtenida de 'adaptiveFormats' (audio)")
+                    print(f"✅ URL obtenida de audio adaptivo")
                     break
 
-        # 🎯 Estrategia 3: Cualquier formato adaptivo
+        # 🎯 Estrategia 3: Cualquier formato
         if not stream_url and 'adaptiveFormats' in streaming_data:
             for fmt in streaming_data['adaptiveFormats']:
                 url = get_url_from_format(fmt)
@@ -123,33 +132,11 @@ async def video_info(url: str = Query(...)):
 
         # ❌ Si aún no hay URL
         if not stream_url:
-            print(f"❌ No se pudo decodificar ninguna URL para {video_id}")
-            
-            # Debug detallado
-            sample_format = None
-            if streaming_data.get('formats'):
-                sample_format = streaming_data['formats'][0]
-            elif streaming_data.get('adaptiveFormats'):
-                sample_format = streaming_data['adaptiveFormats'][0]
-            
-            debug_info = {
-                "has_formats": bool(streaming_data.get('formats')),
-                "formats_count": len(streaming_data.get('formats', [])),
-                "adaptive_count": len(streaming_data.get('adaptiveFormats', [])),
-            }
-            
-            if sample_format:
-                debug_info['sample_format'] = {
-                    'mimeType': sample_format.get('mimeType'),
-                    'has_url': bool(sample_format.get('url')),
-                    'has_signatureCipher': bool(sample_format.get('signatureCipher')),
-                    'cipher_preview': str(sample_format.get('signatureCipher', ''))[:100] if sample_format.get('signatureCipher') else None
-                }
-            
+            print(f"❌ No se pudo obtener stream URL para {video_id}")
             return JSONResponse({
                 "error": "No se pudo obtener URL del stream",
                 "video_id": video_id,
-                "debug": debug_info
+                "suggestion": "Este video puede no estar disponible para reproducción"
             }, status_code=404)
 
         # 📊 Metadata
