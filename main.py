@@ -27,7 +27,7 @@ app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 # 🎯 Cliente InnerTube (mismo que usa MuseUp)
 client = InnerTube(
     client_name="WEB",
-    client_version="2.20231219.01.00"
+    client_version="2.20250101.01.00",  # Versión más reciente
 )
 
 # 🏓 Endpoint para keep-alive (mantener el servidor despierto)
@@ -50,8 +50,27 @@ async def video_info(url: str = Query(...)):
 
         print(f"🎵 Obteniendo info para video: {video_id}")
 
-        # ⚡ Intentar con cliente principal (WEB)
-        data = client.player(video_id=video_id)
+        # ⚡ Headers mejorados para parecer navegador real
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Referer': 'https://www.youtube.com/',
+            'Origin': 'https://www.youtube.com'
+        }
+
+        # Crear cliente temporal con headers personalizados
+        temp_client = InnerTube(
+            client_name="WEB",
+            client_version="2.20250101.01.00",
+        )
+
+        # Inyectar headers
+        if hasattr(temp_client, 'session'):
+            temp_client.session.headers.update(headers)
+
+        # Intentar obtener data
+        data = temp_client.player(video_id=video_id)
 
         # 🔄 Si no tiene streamingData, intentar con múltiples clientes
         if 'streamingData' not in data or not data['streamingData']:
