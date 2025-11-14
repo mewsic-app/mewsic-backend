@@ -53,15 +53,33 @@ async def video_info(url: str = Query(...)):
         # ⚡ Intentar con cliente principal (WEB)
         data = client.player(video_id=video_id)
 
-        # 🔄 Si no tiene streamingData, intentar con ANDROID_MUSIC
+        # 🔄 Si no tiene streamingData, intentar con múltiples clientes
         if 'streamingData' not in data or not data['streamingData']:
-            print(f"⚠️ WEB client no devolvió streamingData, intentando con ANDROID_MUSIC...")
+            print(f"⚠️ WEB client no devolvió streamingData, probando alternativas...")
+    
+            # Lista de clientes alternativos
+            fallback_clients = [
+                ("ANDROID_MUSIC", "6.36.51"),
+                ("ANDROID", "19.09.37"),
+                ("IOS", "19.09.3"),
+                ("MWEB", "2.20231219.01.00"),
+            ]
+    
+            for client_name, client_version in fallback_clients:
+                try:
+                    print(f"🔄 Intentando con {client_name}...")
+                    fallback_client = InnerTube(
+                        client_name=client_name,
+                        client_version=client_version
+                    )
+                    data = fallback_client.player(video_id=video_id)
             
-            android_client = InnerTube(
-                client_name="ANDROID_MUSIC",
-                client_version="6.36.51"
-            )
-            data = android_client.player(video_id=video_id)
+                    if 'streamingData' in data and data['streamingData']:
+                        print(f"✅ {client_name} funcionó!")
+                        break
+                except Exception as e:
+                    print(f"❌ {client_name} falló: {e}")
+                    continue
 
         # 🔍 Verificar streamingData
         if 'streamingData' not in data:
