@@ -56,14 +56,36 @@ async def video_info(url: str = Query(...)):
 
         print(f"🎵 Video: {video_id}")
 
-        # Inyectar visitorData al contexto del cliente
-        if hasattr(client, 'context'):
-            if 'client' not in client.context:
-                client.context['client'] = {}
-            client.context['client']['visitorData'] = VISITOR_DATA
+        # Hacer petición directa a YouTube como lo hace Musiup
+        import requests
 
-        # Hacer petición
-        data = client.player(video_id=video_id)
+        payload = {
+            "videoId": video_id,
+            "contentCheckOk": True,
+            "racyCheckOk": True,
+            "context": {
+                "client": {
+                    "visitorData": VISITOR_DATA,
+                    "clientVersion": "19.35.36",
+                    "platform": "MOBILE",
+                    "clientName": "ANDROID"
+                }
+            },
+            "params": "wgYCCAA="
+        }
+
+        headers = {
+            'User-Agent': 'com.google.android.youtube/19.35.36 (Linux; U; Android 13)',
+            'Content-Type': 'application/json'
+        }
+
+        response = requests.post(
+            'https://www.youtube.com/youtubei/v1/player',
+            json=payload,
+            headers=headers
+        )
+
+        data = response.json()
 
         # Verificar streamingData
         if 'streamingData' not in data or not data.get('streamingData'):
