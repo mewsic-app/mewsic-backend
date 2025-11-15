@@ -14,6 +14,8 @@ YOUTUBE_COOKIES = {
     'PREF': 'f4=4000000&f6=40000000&tz=America.Lima&f7=100',
 }
 
+VISITOR_DATA = "CgtMSkFjYjIwcnd6QSju7ePIBjIKCgJQRRIEGgAgOzoKILjv1fvit63iaFi9_qu88sfksHM%3D"
+
 app = FastAPI()
 
 
@@ -55,13 +57,11 @@ async def video_info(url: str = Query(...)):
         print(f"🎵 Video: {video_id}")
 
         # Usar cliente ANDROID directamente
-        data = client.player(
-            video_id=video_id,
-            params={
-                'contentCheckOk': True,
-                'racyCheckOk': True
-            }
-        )
+        client_config = client._client
+        client_config['context']['client']['visitorData'] = VISITOR_DATA
+
+        # Hacer petición
+        data = client.player(video_id=video_id)
 
         # Verificar streamingData
         if 'streamingData' not in data or not data.get('streamingData'):
