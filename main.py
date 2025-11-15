@@ -41,156 +41,53 @@ client = InnerTube(
 async def ping():
     return {"status": "alive", "timestamp": time.time()}
 
-@app.get("/video-info")
+app.get("/video-info")
 async def video_info(url: str = Query(...)):
     try:
-        start_time = time.time()
-        
         # Extraer video ID
         if "watch?v=" in url:
             video_id = url.split("watch?v=")[1].split("&")[0]
         elif "youtu.be/" in url:
             video_id = url.split("youtu.be/")[1].split("?")[0]
         else:
-            return JSONResponse({"error": "URL de YouTube inválida"}, status_code=400)
+            return JSONResponse({"error": "URL inválida"}, status_code=400)
 
-        print(f"🎵 Obteniendo info para video: {video_id}")
+        print(f"🎵 Video: {video_id}")
 
-        # ⚡ Headers + cookies de sesión real
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Referer': 'https://www.youtube.com/',
-            'Origin': 'https://www.youtube.com',
-            'Cookie': '; '.join([f'{k}={v}' for k, v in YOUTUBE_COOKIES.items()])
-        }
+        # Usar cliente ANDROID directamente
+        data = client.player(video_id=video_id)
 
-        # Crear cliente temporal con headers personalizados
-        temp_client = InnerTube(
-            client_name="ANDROID",
-            client_version="19.09.37",
-        )
-        
-        
-        # Inyectar headers
-        if hasattr(temp_client, 'session'):
-            temp_client.session.headers.update(headers)
-
-        # Intentar obtener data
-        data = temp_client.player(video_id=video_id)
-
-        # 🔄 Si no tiene streamingData, intentar con múltiples clientes
-        if 'streamingData' not in data or not data['streamingData']:
-            print(f"⚠️ WEB client no devolvió streamingData, probando alternativas...")
-    
-            # Lista de clientes alternativos
-            fallback_clients = [
-                ("ANDROID_MUSIC", "6.36.51"),
-                ("ANDROID", "19.09.37"),
-                ("IOS", "19.09.3"),
-                ("MWEB", "2.20231219.01.00"),
-            ]
-    
-            for client_name, client_version in fallback_clients:
-                try:
-                    print(f"🔄 Intentando con {client_name}...")
-                    fallback_client = InnerTube(
-                        client_name=client_name,
-                        client_version=client_version
-                    )
-                    data = fallback_client.player(video_id=video_id)
-            
-                    if 'streamingData' in data and data['streamingData']:
-                        print(f"✅ {client_name} funcionó!")
-                        break
-                except Exception as e:
-                    print(f"❌ {client_name} falló: {e}")
-                    continue
-
-        # 🔍 Verificar streamingData
-        if 'streamingData' not in data:
-            print(f"❌ No hay streamingData para {video_id}")
+        # Verificar streamingData
+        if 'streamingData' not in data or not data.get('streamingData'):
             return JSONResponse({
-                "error": "No se pudo obtener streamingData",
-                "video_id": video_id,
-                "suggestion": "Este video puede tener restricciones de región o edad"
+                "error": "No disponible",
+                "video_id": video_id
             }, status_code=404)
 
         streaming_data = data['streamingData']
+        
+        # Obtener URL del primer formato disponible
         stream_url = None
-
-        def get_url_from_format(fmt):
-            """Extrae URL de un formato, manejando signatureCipher si existe"""
-            if fmt.get('url'):
-                return fmt['url']
-            
-            # Si tiene signatureCipher, decodificar
-            if fmt.get('signatureCipher'):
-                from urllib.parse import parse_qs, unquote
-                cipher = fmt['signatureCipher']
-                params = parse_qs(cipher)
-                
-                if 'url' in params:
-                    base_url = unquote(params['url'][0])
-                    
-                    # Si tiene signature, agregarla
-                    if 's' in params:
-                        sig = params['s'][0]
-                        for sig_param in ['signature', 'sig', 'lsig']:
-                            if sig_param not in base_url:
-                                return f"{base_url}&{sig_param}={sig}"
-                    
-                    return base_url
-            
-            return None
-
-        # 🎯 Estrategia 1: Formatos combinados
-        if 'formats' in streaming_data:
-            for fmt in streaming_data['formats']:
-                url = get_url_from_format(fmt)
-                if url:
-                    stream_url = url
-                    print(f"✅ URL obtenida de 'formats'")
-                    break
-
-        # 🎯 Estrategia 2: Formatos adaptativos de audio
-        if not stream_url and 'adaptiveFormats' in streaming_data:
-            audio_formats = [f for f in streaming_data['adaptiveFormats']
-                           if f.get('mimeType', '').startswith('audio')]
-            
-            for fmt in audio_formats:
-                url = get_url_from_format(fmt)
-                if url:
-                    stream_url = url
-                    print(f"✅ URL obtenida de audio adaptivo")
-                    break
-
-        # 🎯 Estrategia 3: Cualquier formato
+        
+        # Intentar formatos combinados primero
+        if 'formats' in streaming_data and len(streaming_data['formats']) > 0:
+            stream_url = streaming_data['formats'][0].get('url')
+        
+        # Si no, intentar formatos adaptativos
         if not stream_url and 'adaptiveFormats' in streaming_data:
             for fmt in streaming_data['adaptiveFormats']:
-                url = get_url_from_format(fmt)
-                if url:
-                    stream_url = url
-                    print(f"✅ URL obtenida de cualquier formato")
+                if fmt.get('url'):
+                    stream_url = fmt['url']
                     break
 
-        # ❌ Si aún no hay URL
         if not stream_url:
-            print(f"❌ No se pudo obtener stream URL para {video_id}")
-            return JSONResponse({
-                "error": "No se pudo obtener URL del stream",
-                "video_id": video_id,
-                "suggestion": "Este video puede no estar disponible para reproducción"
-            }, status_code=404)
+            return JSONResponse({"error": "No stream URL"}, status_code=404)
 
-        # 📊 Metadata
+        # Metadata
         video_details = data.get('videoDetails', {})
-        total_time = time.time() - start_time
-        print(f"⏱️ Tiempo total: {total_time:.2f}s")
 
         return {
-            "title": video_details.get("title", "Sin título"),
+            "title": video_details.get("title", ""),
             "duration": int(video_details.get("lengthSeconds", 0)),
             "thumbnail": video_details.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", ""),
             "stream_url": stream_url,
@@ -199,8 +96,6 @@ async def video_info(url: str = Query(...)):
 
     except Exception as e:
         print(f"❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
     
 @app.get("/search")
