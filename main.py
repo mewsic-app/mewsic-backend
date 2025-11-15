@@ -56,19 +56,14 @@ async def video_info(url: str = Query(...)):
 
         print(f"🎵 Video: {video_id}")
 
-        # Crear payload personalizado con visitorData
-        data = client.player(
-            video_id=video_id,
-            client_data={
-                'context': {
-                    'client': {
-                        'visitorData': VISITOR_DATA,
-                        'clientName': 'ANDROID',
-                        'clientVersion': '19.09.37'
-                    }
-                }
-           }
-        )
+        # Inyectar visitorData al contexto del cliente
+        if hasattr(client, 'context'):
+            if 'client' not in client.context:
+                client.context['client'] = {}
+            client.context['client']['visitorData'] = VISITOR_DATA
+
+        # Hacer petición
+        data = client.player(video_id=video_id)
 
         # Verificar streamingData
         if 'streamingData' not in data or not data.get('streamingData'):
