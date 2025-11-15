@@ -41,7 +41,7 @@ client = InnerTube(
 async def ping():
     return {"status": "alive", "timestamp": time.time()}
 
-app.get("/video-info")
+@app.get("/video-info")
 async def video_info(url: str = Query(...)):
     try:
         # Extraer video ID
