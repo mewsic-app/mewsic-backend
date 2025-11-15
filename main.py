@@ -32,8 +32,8 @@ app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 
 # 🎯 Cliente InnerTube (mismo que usa MuseUp)
 client = InnerTube(
-    client_name="WEB",
-    client_version="2.20250101.01.00",  # Versión más reciente
+    client_name="ANDROID",
+    client_version="19.09.37",
 )
 
 # 🏓 Endpoint para keep-alive (mantener el servidor despierto)
@@ -68,10 +68,11 @@ async def video_info(url: str = Query(...)):
 
         # Crear cliente temporal con headers personalizados
         temp_client = InnerTube(
-            client_name="WEB",
-            client_version="2.20250101.01.00",
+            client_name="ANDROID",
+            client_version="19.09.37",
         )
-
+        
+        
         # Inyectar headers
         if hasattr(temp_client, 'session'):
             temp_client.session.headers.update(headers)
