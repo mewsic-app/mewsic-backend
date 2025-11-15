@@ -8,6 +8,12 @@ import time  # ← AGREGAR esta línea
 import httpx
 import test_innertube
 
+# 🍪 Cookies de sesión real para bypasear detección de bot
+YOUTUBE_COOKIES = {
+    'VISITOR_INFO1_LIVE': 'Q5iMtBhldt0',
+    'PREF': 'f4=4000000&f6=40000000&tz=America.Lima&f7=100',
+}
+
 app = FastAPI()
 
 
@@ -50,13 +56,14 @@ async def video_info(url: str = Query(...)):
 
         print(f"🎵 Obteniendo info para video: {video_id}")
 
-        # ⚡ Headers mejorados para parecer navegador real
+        # ⚡ Headers + cookies de sesión real
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Referer': 'https://www.youtube.com/',
-            'Origin': 'https://www.youtube.com'
+            'Origin': 'https://www.youtube.com',
+            'Cookie': '; '.join([f'{k}={v}' for k, v in YOUTUBE_COOKIES.items()])
         }
 
         # Crear cliente temporal con headers personalizados
