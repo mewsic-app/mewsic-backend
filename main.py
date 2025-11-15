@@ -55,7 +55,13 @@ async def video_info(url: str = Query(...)):
         print(f"🎵 Video: {video_id}")
 
         # Usar cliente ANDROID directamente
-        data = client.player(video_id=video_id)
+        data = client.player(
+            video_id=video_id,
+            params={
+                'contentCheckOk': True,
+                'racyCheckOk': True
+            }
+        )
 
         # Verificar streamingData
         if 'streamingData' not in data or not data.get('streamingData'):
